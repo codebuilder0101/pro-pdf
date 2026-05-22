@@ -1,0 +1,138 @@
+[
+  {
+    "type0Obj": 79,
+    "baseFont": "TILBPG+Connections",
+    "toUniObj": 3,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 81,
+    "baseFont": "XDZZTY+Connections",
+    "toUniObj": 4,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 83,
+    "baseFont": "RPRPNK+Connections",
+    "toUniObj": 11,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 84,
+    "baseFont": "YIJFHW+Connections",
+    "toUniObj": 12,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 85,
+    "baseFont": "XYZZTY+Connections",
+    "toUniObj": 10,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 92,
+    "baseFont": "OUNXXQ+Connections",
+    "toUniObj": 53,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 95,
+    "baseFont": "YIJFHW+Connections",
+    "toUniObj": 22,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 96,
+    "baseFont": "DQHJZM+Connections",
+    "toUniObj": 23,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 98,
+    "baseFont": "IIFNRC+Connections",
+    "toUniObj": 21,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 103,
+    "baseFont": "OUNXXQ+Connections",
+    "toUniObj": 54,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 110,
+    "baseFont": "QUHJZM+Connections",
+    "toUniObj": 34,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 111,
+    "baseFont": "TRLBPG+Connections",
+    "toUniObj": 35,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 116,
+    "baseFont": "VNFNRC+Connections",
+    "toUniObj": 42,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 117,
+    "baseFont": "CRXDLO+Connections",
+    "toUniObj": 46,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 118,
+    "baseFont": "INFNRC+Connections",
+    "toUniObj": 50,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 171,
+    "baseFont": "LBJFHW+Connections",
+    "toUniObj": 146,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  },
+  {
+    "type0Obj": 173,
+    "baseFont": "LBJFHW+Connections",
+    "toUniObj": 147,
+    "cidFontObj": 169,
+    "fontDescriptorObj": "168",
+    "fontFile2Obj": 142
+  }
+]

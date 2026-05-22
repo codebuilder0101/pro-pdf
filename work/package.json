@@ -12,6 +12,7 @@
   "type": "commonjs",
   "dependencies": {
     "@napi-rs/canvas": "^1.0.0",
+    "canvas": "^3.2.3",
     "fontkit": "^2.0.4",
     "mupdf": "^1.27.0",
     "opentype.js": "^2.0.0",
