@@ -1,0 +1,11 @@
+import fs from 'fs';
+import path from 'path';
+import * as mupdf from 'mupdf';
+const newPdf = path.resolve('../asset/BANK STATEMENT APRIL 2026 DAPOS CONv1.2-Type1.pdf');
+const oldPdf = path.resolve('../asset/BANK STATEMENT APRIL 2026 DAPOS CONv1.2.pdf');
+const d1 = mupdf.Document.openDocument(fs.readFileSync(oldPdf), 'application/pdf');
+const d2 = mupdf.Document.openDocument(fs.readFileSync(newPdf), 'application/pdf');
+const pix1 = d1.loadPage(2).toPixmap(mupdf.Matrix.scale(2, 2), mupdf.ColorSpace.DeviceRGB, false, true);
+const pix2 = d2.loadPage(2).toPixmap(mupdf.Matrix.scale(2, 2), mupdf.ColorSpace.DeviceRGB, false, true);
+fs.writeFileSync(path.resolve('../zoom_orig_p3.png'), pix1.asPNG());
+fs.writeFileSync(path.resolve('../zoom_t1_p3.png'), pix2.asPNG());
