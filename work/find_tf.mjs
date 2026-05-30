@@ -1,0 +1,10 @@
+import fs from 'fs';
+const c = fs.readFileSync('converted_p3.txt', 'latin1');
+const i = c.indexOf('36.003 689.988 Td');
+const before = c.slice(0, i);
+const lastTf = before.lastIndexOf('Tf');
+const tfStart = before.lastIndexOf('/', lastTf);
+console.log('Controlling Tf:', JSON.stringify(before.slice(tfStart, lastTf+2)));
+console.log('--- context (escaped) ---');
+const sect = c.slice(i-260, i+120);
+console.log(sect.replace(/[\x00-\x08\x0b-\x1f]/g, ch => '\\x' + ch.charCodeAt(0).toString(16).padStart(2,'0')));

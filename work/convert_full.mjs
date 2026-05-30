@@ -6,8 +6,8 @@ import path from 'path';
 import zlib from 'zlib';
 import * as fontkit from 'fontkit';
 
-const SRC = 'bank_all_clean.pdf';
-const DST = path.resolve('../asset/BANK STATEMENT APRIL 2026 DAPOS CONv1.2-Type1.pdf');
+const SRC = 'normalized.pdf';
+const DST = path.resolve('C:/output/result.pdf');
 
 const text = fs.readFileSync(SRC, 'latin1');
 const buf  = fs.readFileSync(SRC);
@@ -142,90 +142,185 @@ function convertToUnicodeCMap(cmap) {
   return Buffer.from(t, 'latin1');
 }
 
-// Content stream rewriter
+// Decode a PDF literal-string body (with escapes) into raw bytes
+function decodeLiteral(body) {
+  const bytes = [];
+  let p = 0;
+  while (p < body.length) {
+    if (body[p] === '\\') {
+      const n = body[p+1];
+      if (n === 'n') { bytes.push(0x0a); p += 2; }
+      else if (n === 'r') { bytes.push(0x0d); p += 2; }
+      else if (n === 't') { bytes.push(0x09); p += 2; }
+      else if (n === 'b') { bytes.push(0x08); p += 2; }
+      else if (n === 'f') { bytes.push(0x0c); p += 2; }
+      else if (n === '\\' || n === '(' || n === ')') { bytes.push(body.charCodeAt(p+1)); p += 2; }
+      else if (n === '\n') { p += 2; } // line continuation
+      else if (n === '\r') { p += (body[p+2] === '\n') ? 3 : 2; }
+      else if (/[0-7]/.test(n)) {
+        let oct = n; p += 2;
+        if (p < body.length && /[0-7]/.test(body[p])) { oct += body[p]; p++; }
+        if (oct.length < 3 && p < body.length && /[0-7]/.test(body[p])) { oct += body[p]; p++; }
+        bytes.push(parseInt(oct, 8) & 0xff);
+      } else { bytes.push(body.charCodeAt(p+1)); p += 2; }
+    } else { bytes.push(body.charCodeAt(p)); p++; }
+  }
+  return bytes;
+}
+// Encode raw bytes back into a PDF literal string
+function encodeLiteral(bytes) {
+  return bytes.map(b => {
+    if (b === 0x28) return '\\(';
+    if (b === 0x29) return '\\)';
+    if (b === 0x5c) return '\\\\';
+    if (b >= 0x20 && b < 0x7f) return String.fromCharCode(b);
+    return '\\' + b.toString(8).padStart(3, '0');
+  }).join('');
+}
+// Collapse a 2-byte-CID byte array to 1-byte codes (high byte must be 0). Returns null if not collapsible.
+function collapseBytes(bytes) {
+  if (bytes.length % 2 !== 0) return null;
+  const out = [];
+  for (let i = 0; i < bytes.length; i += 2) {
+    if (bytes[i] !== 0) return null;
+    out.push(bytes[i+1]);
+  }
+  return out;
+}
+
+// Content-stream rewriter with a proper graphics-state-aware tokenizer.
+// Tracks the current font through Tf operators AND q/Q save/restore, so text shown
+// under a /C2_* font that was restored via Q is correctly identified and collapsed.
 function rewriteContentStream(txt, targetNames) {
-  const tfRe = /\/([A-Za-z][\w]*)\s+([\-\d.]+)\s+Tf/g;
-  const tfPositions = [];
-  let m;
-  while ((m = tfRe.exec(txt)) !== null) {
-    tfPositions.push({ pos: m.index + m[0].length, name: m[1], rawStart: m.index });
-  }
-  if (tfPositions.length === 0) return txt;
-  const ranges = [];
-  let cursor = 0, curFont = null;
-  for (const tf of tfPositions) {
-    ranges.push({ from: cursor, to: tf.rawStart, font: curFont });
-    ranges.push({ from: tf.rawStart, to: tf.pos, font: curFont, isTf: true });
-    cursor = tf.pos;
-    curFont = tf.name;
-  }
-  ranges.push({ from: cursor, to: txt.length, font: curFont });
-  const chunks = [];
-  for (const r of ranges) {
-    let s = txt.slice(r.from, r.to);
-    if (!r.isTf && targetNames.has(r.font)) {
-      // Collapse 4-hex (2-byte CIDs) -> 2-hex (1-byte codes).
-      s = s.replace(/<([0-9A-Fa-f\s]+)>/g, (mm, hex) => {
-        const h = hex.replace(/\s+/g, '');
-        if (h.length % 4 !== 0) return mm;
-        let out = '';
-        for (let i = 0; i < h.length; i += 4) {
-          if (h.substr(i, 2) !== '00') return mm;
-          out += h.substr(i + 2, 2);
-        }
-        return '<' + out + '>';
-      });
-      // Also handle parenthesized strings — Adobe Acrobat uses these for CID text
-      // with octal escapes like `\000:`. Each character is 2 bytes; high byte is 00.
-      s = s.replace(/\(((?:\\\\|\\\(|\\\)|\\[nrtbf]|\\[0-7]{1,3}|[^()\\])*)\)/g, (mm, body) => {
-        // Decode parenthesized string into raw bytes
-        const bytes = [];
-        let p = 0;
-        while (p < body.length) {
-          if (body[p] === '\\') {
-            const n = body[p+1];
-            if (n === 'n') { bytes.push(0x0a); p += 2; }
-            else if (n === 'r') { bytes.push(0x0d); p += 2; }
-            else if (n === 't') { bytes.push(0x09); p += 2; }
-            else if (n === 'b') { bytes.push(0x08); p += 2; }
-            else if (n === 'f') { bytes.push(0x0c); p += 2; }
-            else if (n === '\\' || n === '(' || n === ')') { bytes.push(body.charCodeAt(p+1)); p += 2; }
-            else if (/[0-7]/.test(n)) {
-              let oct = n; p += 2;
-              if (p < body.length && /[0-7]/.test(body[p])) { oct += body[p]; p++; }
-              if (p < body.length && /[0-7]/.test(body[p]) && oct.length < 3) { oct += body[p]; p++; }
-              bytes.push(parseInt(oct, 8) & 0xff);
-            } else { bytes.push(body.charCodeAt(p+1)); p += 2; }
-          } else {
-            bytes.push(body.charCodeAt(p)); p++;
-          }
-        }
-        // Decode 2-byte CIDs -> 1-byte codes if high byte is 0
-        if (bytes.length % 2 !== 0) return mm;
-        const out = [];
-        for (let i = 0; i < bytes.length; i += 2) {
-          if (bytes[i] !== 0) return mm;
-          out.push(bytes[i+1]);
-        }
-        // Re-encode as parenthesized string
-        const escaped = out.map(b => {
-          if (b === 0x28) return '\\(';
-          if (b === 0x29) return '\\)';
-          if (b === 0x5c) return '\\\\';
-          if (b === 0x0a) return '\\n';
-          if (b === 0x0d) return '\\r';
-          if (b === 0x09) return '\\t';
-          if (b === 0x08) return '\\b';
-          if (b === 0x0c) return '\\f';
-          if (b >= 0x20 && b < 0x7f) return String.fromCharCode(b);
-          return '\\' + b.toString(8).padStart(3, '0');
-        }).join('');
-        return '(' + escaped + ')';
-      });
+  const edits = [];
+  let out = '';
+  let i = 0;
+  const n = txt.length;
+  let curFont = null;
+  const stack = [];
+  // pending operands (we only care about the most recent name and string operands)
+  let pendingName = null;     // last /name seen (for Tf)
+  // For string operators we look back at the immediately-preceding string token.
+  // We'll track the output positions of string tokens so we can rewrite them when
+  // the following operator confirms they're text shown under a target font.
+  let lastStringRange = null; // { outStart, outEnd, bytes } for a literal/hex string just emitted
+  let arrayStringRanges = []; // for TJ arrays: list of {outStart,outEnd,bytes,isHex}
+
+  function isWS(ch) { return ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n' || ch === '\f' || ch === '\0'; }
+
+  while (i < n) {
+    const ch = txt[i];
+    // Whitespace / generic single chars
+    if (isWS(ch)) { out += ch; i++; continue; }
+
+    // Comment
+    if (ch === '%') { let j = i; while (j < n && txt[j] !== '\n' && txt[j] !== '\r') j++; out += txt.slice(i, j); i = j; continue; }
+
+    // Name: /xxxx
+    if (ch === '/') {
+      let j = i + 1;
+      while (j < n && !isWS(txt[j]) && !'()<>[]{}/%'.includes(txt[j])) j++;
+      pendingName = txt.slice(i + 1, j);
+      out += txt.slice(i, j);
+      i = j;
+      continue;
     }
-    chunks.push(s);
+
+    // Literal string (....)
+    if (ch === '(') {
+      let depth = 1, j = i + 1;
+      while (j < n && depth > 0) {
+        if (txt[j] === '\\') { j += 2; continue; }
+        if (txt[j] === '(') depth++;
+        else if (txt[j] === ')') depth--;
+        j++;
+      }
+      const body = txt.slice(i + 1, j - 1);
+      const outStart = out.length;
+      out += txt.slice(i, j);
+      lastStringRange = { outStart, outEnd: out.length, bytes: decodeLiteral(body), isHex: false };
+      arrayStringRanges.push(lastStringRange);
+      i = j;
+      continue;
+    }
+
+    // Hex string <....>  (but not << dict)
+    if (ch === '<' && txt[i+1] !== '<') {
+      let j = i + 1;
+      while (j < n && txt[j] !== '>') j++;
+      const hex = txt.slice(i + 1, j).replace(/\s+/g, '');
+      const bytes = [];
+      for (let k = 0; k + 2 <= hex.length; k += 2) bytes.push(parseInt(hex.substr(k, 2), 16));
+      if (hex.length % 2 === 1) bytes.push(parseInt(hex[hex.length-1] + '0', 16));
+      const outStart = out.length;
+      out += txt.slice(i, j + 1);
+      lastStringRange = { outStart, outEnd: out.length, bytes, isHex: true };
+      arrayStringRanges.push(lastStringRange);
+      i = j + 1;
+      continue;
+    }
+
+    // Dict << >> — pass through opaquely
+    if (ch === '<' && txt[i+1] === '<') { out += '<<'; i += 2; continue; }
+    if (ch === '>' && txt[i+1] === '>') { out += '>>'; i += 2; continue; }
+
+    // Array [ ] — we let contents flow through; reset array string list at '['
+    if (ch === '[') { arrayStringRanges = []; out += ch; i++; continue; }
+    if (ch === ']') { out += ch; i++; continue; }
+
+    // Bare token (operator or number)
+    let j = i;
+    while (j < n && !isWS(txt[j]) && !'()<>[]{}/%'.includes(txt[j])) j++;
+    const tok = txt.slice(i, j);
+    out += tok;
+    i = j;
+
+    // Act on operators
+    if (tok === 'q') { stack.push(curFont); }
+    else if (tok === 'Q') { curFont = stack.length ? stack.pop() : curFont; }
+    else if (tok === 'Tf') { curFont = pendingName; }
+    else if (tok === 'Tj' || tok === "'" || tok === '"') {
+      if (lastStringRange && targetNames.has(curFont)) {
+        rewriteStringInOut(lastStringRange);
+      }
+      lastStringRange = null;
+      arrayStringRanges = [];
+    }
+    else if (tok === 'TJ') {
+      if (targetNames.has(curFont)) {
+        // Rewrite every string collected since the last '['
+        for (const r of arrayStringRanges) rewriteStringInOut(r);
+      }
+      arrayStringRanges = [];
+      lastStringRange = null;
+    }
   }
-  return chunks.join('');
+
+  // Apply deferred rewrites: we recorded ranges referencing `out` positions, but since we
+  // rewrite in place by rebuilding, do the rewrites now using recorded data.
+  // (rewriteStringInOut pushes edits into `edits`; apply them.)
+  if (edits.length) {
+    edits.sort((a, b) => a.start - b.start);
+    let res = '';
+    let prev = 0;
+    for (const e of edits) {
+      res += out.slice(prev, e.start) + e.text;
+      prev = e.end;
+    }
+    res += out.slice(prev);
+    return res;
+  }
+  return out;
+
+  // ---- helpers that close over `out` and `edits` ----
+  function rewriteStringInOut(range) {
+    const collapsed = collapseBytes(range.bytes);
+    if (!collapsed) return;
+    const text = range.isHex
+      ? '<' + collapsed.map(b => b.toString(16).padStart(2, '0')).join('') + '>'
+      : '(' + encodeLiteral(collapsed) + ')';
+    edits.push({ start: range.outStart, end: range.outEnd, text });
+  }
 }
 
 function extractDict(text, key) {
@@ -289,25 +384,29 @@ for (const [pageNum, pageObj] of objs) {
 }
 console.log(`Pages: ${pageCount}, rewrote ${newContentStreams.size} content streams`);
 
-// New font dicts
+// New font dicts.
+// The original embedded the "Connections" TrueType font ONCE (all 17 Type0 wrappers
+// shared a single CIDFont + FontFile2). To keep Acrobat showing it as a SINGLE
+// "Connections" font, all converted fonts share ONE FontDescriptor + ONE FontFile3 (CFF)
+// and use the SAME BaseFont name "Connections".
 const cffCompressed = zlib.deflateSync(cffData);
 const newFontDicts = new Map();
 const extraObjs = new Map();
 let nextNewObjNum = Math.max(...objs.keys()) + 1;
 
-for (const f of type0Fonts) {
-  const ffObjNum = nextNewObjNum++;
-  const fdObjNum = nextNewObjNum++;
-  extraObjs.set(ffObjNum, {
-    kind: 'stream',
-    dict: `<< /Subtype /Type1C /Filter /FlateDecode /Length ${cffCompressed.length} >>`,
-    stream: cffCompressed,
-  });
-  extraObjs.set(fdObjNum, {
-    kind: 'dict',
-    dict: `<<
+const SHARED_NAME = 'Connections';
+const sharedFFObj = nextNewObjNum++;   // single CFF program
+const sharedFDObj = nextNewObjNum++;   // single FontDescriptor
+extraObjs.set(sharedFFObj, {
+  kind: 'stream',
+  dict: `<< /Subtype /Type1C /Filter /FlateDecode /Length ${cffCompressed.length} >>`,
+  stream: cffCompressed,
+});
+extraObjs.set(sharedFDObj, {
+  kind: 'dict',
+  dict: `<<
 /Type /FontDescriptor
-/FontName /${f.baseFont}
+/FontName /${SHARED_NAME}
 /FontFamily (Connections)
 /FontStretch /Normal
 /FontWeight 400
@@ -320,22 +419,81 @@ for (const f of type0Fonts) {
 /XHeight 488
 /StemV 84
 /MissingWidth 0
-/FontFile3 ${ffObjNum} 0 R
+/FontFile3 ${sharedFFObj} 0 R
 >>`
-  });
-  const dict = `<<
+});
+
+// Build ONE merged ToUnicode CMap (1-byte) covering every glyph, from the font's own
+// glyph->Unicode reverse mapping. (All original per-font CMaps shared the same CID->Unicode
+// because CID==GID for one underlying font, so a single CMap is correct for all.)
+const bf = [];
+for (let g = 0; g < N_GLYPHS; g++) {
+  const glyph = ttf.getGlyph(g);
+  const cps = glyph.codePoints;
+  if (cps && cps.length === 1 && cps[0] > 0) {
+    bf.push(`<${g.toString(16).padStart(2,'0')}> <${cps[0].toString(16).padStart(4,'0')}>`);
+  }
+}
+const mergedToUni = `/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00><FF>
+endcodespacerange
+${bf.length} beginbfchar
+${bf.join('\n')}
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+`;
+const sharedToUniObj = nextNewObjNum++;
+extraObjs.set(sharedToUniObj, {
+  kind: 'stream',
+  dict: `<< /Length ${Buffer.byteLength(mergedToUni, 'latin1')} >>`,
+  stream: Buffer.from(mergedToUni, 'latin1'),
+});
+
+// ONE single Connections Type 1 font object, referenced by every page.
+const sharedFontObj = nextNewObjNum++;
+extraObjs.set(sharedFontObj, {
+  kind: 'dict',
+  dict: `<<
 /Type /Font
 /Subtype /Type1
-/BaseFont /${f.baseFont}
+/BaseFont /${SHARED_NAME}
 /FirstChar 0
 /LastChar ${N_GLYPHS - 1}
 /Widths [ ${widthsStr} ]
-/FontDescriptor ${fdObjNum} 0 R
+/FontDescriptor ${sharedFDObj} 0 R
 /Encoding << /Type /Encoding /Differences [ ${diffStr} ] >>
-${f.toUniObj ? `/ToUnicode ${f.toUniObj} 0 R` : ''}
->>`;
-  newFontDicts.set(f.num, dict);
-}
+/ToUnicode ${sharedToUniObj} 0 R
+>>`,
+});
+// (No per-font font dicts; newFontDicts stays empty. Page references get redirected to
+//  sharedFontObj, and the 17 original Type0 font dicts are dropped.)
+
+// ---- Encoding unification (SAFE): convert every /Encoding /MacRomanEncoding font dict to an
+// explicit /Differences encoding that replicates MacRomanEncoding exactly. Rendering is
+// byte-identical (same byte->name->glyph), but Acrobat then groups each font family under a
+// single "Custom" encoding, so each font appears ONCE instead of twice (Custom + Roman).
+const MACROMAN = (()=>{ const a=new Array(256).fill('.notdef');
+  const asc={32:'space',33:'exclam',34:'quotedbl',35:'numbersign',36:'dollar',37:'percent',38:'ampersand',39:'quotesingle',40:'parenleft',41:'parenright',42:'asterisk',43:'plus',44:'comma',45:'hyphen',46:'period',47:'slash',48:'zero',49:'one',50:'two',51:'three',52:'four',53:'five',54:'six',55:'seven',56:'eight',57:'nine',58:'colon',59:'semicolon',60:'less',61:'equal',62:'greater',63:'question',64:'at',91:'bracketleft',92:'backslash',93:'bracketright',94:'asciicircum',95:'underscore',96:'grave',123:'braceleft',124:'bar',125:'braceright',126:'asciitilde'};
+  for(const k in asc)a[k]=asc[k];
+  for(let i=65;i<=90;i++)a[i]=String.fromCharCode(i);
+  for(let i=97;i<=122;i++)a[i]=String.fromCharCode(i);
+  const hi='Adieresis Aring Ccedilla Eacute Ntilde Odieresis Udieresis aacute agrave acircumflex adieresis atilde aring ccedilla eacute egrave ecircumflex edieresis iacute igrave icircumflex idieresis ntilde oacute ograve ocircumflex odieresis otilde uacute ugrave ucircumflex udieresis dagger degree cent sterling section bullet paragraph germandbls registered copyright trademark acute dieresis notequal AE Oslash infinity plusminus lessequal greaterequal yen mu partialdiff summation product pi integral ordfeminine ordmasculine Omega ae oslash questiondown exclamdown logicalnot radical florin approxequal Delta guillemotleft guillemotright ellipsis space Agrave Atilde Otilde OE oe endash emdash quotedblleft quotedblright quoteleft quoteright divide lozenge ydieresis Ydieresis fraction currency guilsinglleft guilsinglright fi fl daggerdbl periodcentered quotesinglbase quotedblbase perthousand Acircumflex Ecircumflex Aacute Edieresis Egrave Iacute Icircumflex Idieresis Igrave Oacute Ocircumflex apple Ograve Uacute Ucircumflex Ugrave dotlessi circumflex tilde macron breve dotaccent ring cedilla hungarumlaut ogonek caron'.split(' ');
+  for(let i=0;i<hi.length;i++)a[128+i]=hi[i];
+  return a; })();
+const macRomanDiffStr = (()=>{ const parts=['0']; for(let i=0;i<256;i++) parts.push('/'+(MACROMAN[i]==='.notdef'?'.notdef':MACROMAN[i])); return parts.join(' '); })();
+// Per final requirements: every NON-CID font must remain byte-identical to the original,
+// including its encoding (Custom or MacRomanEncoding). The MacRoman->Custom fixup is DISABLED.
+const encodingFixups = new Map();
+console.log('MacRoman->Custom encoding fixups: DISABLED');
 
 // ToUnicode CMap rewrites
 const newToUnicodeStreams = new Map();
@@ -349,13 +507,19 @@ for (const f of type0Fonts) {
   newToUnicodeStreams.set(f.toUniObj, convertToUnicodeCMap(raw));
 }
 
-// Drop orphaned objects
+// Drop orphaned objects: the CID descendants/arrays/old descriptors/old TTF programs,
+// the per-font ToUnicode CMaps, AND all 17 original Type0 Connections font dicts
+// (every page reference is redirected to the single sharedFontObj).
 const droppedObjs = new Set();
+const redirectFrom = new Set();   // original Connections font obj numbers -> redirect to sharedFontObj
 for (const f of type0Fonts) {
   if (f.descArrayRef) droppedObjs.add(parseInt(f.descArrayRef[1]));
   droppedObjs.add(f.descObjNum);
   droppedObjs.add(f.fdNum);
   droppedObjs.add(f.ff2Num);
+  droppedObjs.add(f.num);              // drop the original font dict object
+  redirectFrom.add(f.num);
+  if (f.toUniObj) droppedObjs.add(f.toUniObj);  // drop per-font ToUnicode
   const fdObj = objs.get(f.fdNum);
   if (fdObj) {
     const csMatch = fdObj.dictText.match(/\/CIDSet\s+(\d+)\s+\d+\s+R/);
@@ -363,6 +527,14 @@ for (const f of type0Fonts) {
   }
 }
 console.log('Dropped objects:', [...droppedObjs].sort((a,b)=>a-b).join(','));
+
+// Redirect any "/Name <origFontObj> 0 R" in page Resources to the single shared font object.
+function redirectFontRefs(dictText) {
+  return dictText.replace(/(\/[A-Za-z][\w]*\s+)(\d+)(\s+\d+\s+R)/g, (mm, pre, num, post) => {
+    if (redirectFrom.has(parseInt(num))) return `${pre}${sharedFontObj}${post}`;
+    return mm;
+  });
+}
 
 // Emit PDF
 const out = [];
@@ -420,11 +592,13 @@ for (let n = 1; n <= maxNum; n++) {
     dict = stripKey(dict, 'Filter');
     const lastGT = dict.lastIndexOf('>>');
     dict = dict.slice(0, lastGT) + ` /Filter /FlateDecode /Length ${compressed.length} ` + dict.slice(lastGT);
-    emit(dict + '\nstream\n');
+    emit(redirectFontRefs(dict) + '\nstream\n');
     emit(compressed);
     emit('\nendstream\n');
+  } else if (encodingFixups.has(n)) {
+    emit(redirectFontRefs(encodingFixups.get(n).trim()) + '\n');
   } else {
-    emit(o.dictText.trim() + '\n');
+    emit(redirectFontRefs(o.dictText.trim()) + '\n');
   }
   emit('endobj\n');
 }
