@@ -7,7 +7,7 @@ import zlib from 'zlib';
 import * as fontkit from 'fontkit';
 
 const SRC = 'normalized.pdf';
-const DST = path.resolve('C:/output/result.pdf');
+const DST = path.resolve('C:/output/result1.pdf');
 
 const text = fs.readFileSync(SRC, 'latin1');
 const buf  = fs.readFileSync(SRC);
@@ -539,8 +539,13 @@ function redirectFontRefs(dictText) {
 // Emit PDF
 const out = [];
 const xref = new Map();
-function emit(s) { out.push(typeof s === 'string' ? Buffer.from(s, 'latin1') : s); }
-function curLen() { return out.reduce((a, b) => a + b.length, 0); }
+let runningLen = 0;
+function emit(s) {
+  const b = typeof s === 'string' ? Buffer.from(s, 'latin1') : s;
+  out.push(b);
+  runningLen += b.length;
+}
+function curLen() { return runningLen; }
 
 emit('%PDF-1.6\n%\xE2\xE3\xCF\xD3\n');
 
